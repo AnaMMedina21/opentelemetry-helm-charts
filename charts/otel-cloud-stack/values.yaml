@@ -1,0 +1,261 @@
+# Default values for otel-cloud-stack.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+collectorCRD:
+  generate: false
+  updateStrategy: ""
+  resources: {}
+  # If the target allocator is enabled, the service account, cluster role
+  # and cluster role binding will be generated as well, with appropriate
+  # permissions, necessary for target allocator to work. If you do not
+  # wish to create these objects and would like to specify your own
+  # service account, provide it below.
+targetAllocator:
+  enabled: false
+  prometheusCR:
+    enabled: false
+    podMonitorSelector: {}
+    serviceMonitorSelector: {}
+  allocationStrategy: ""
+  # Target allocator image defaults to repository and tag set by
+  # the operator (this should correspond to operator's version).
+  # Set appropriate values to override.
+  image:
+    repository: ""
+    tag: ""
+    digest: ""
+  # Name of the service account to be used by the target allocator.
+  # If set, no service account or cluster role for target allocator
+  # will be created.
+  serviceAccount: ""
+  resources: {}
+
+config:
+  exporters:
+    debug: {}
+    # Will be removed in a future release.
+    # Use the debug exporter instead.
+    logging: {}
+  extensions:
+    # The health_check extension is mandatory for this chart.
+    # Without the health_check extension the collector will fail the readiness and liveliness probes.
+    # The health_check extension can be modified, but should never be removed.
+    health_check: 
+      endpoint: ${env:MY_POD_IP}:13133
+    memory_ballast: {}
+  processors:
+    batch: {}
+    # If set to null, will be overridden with values based on k8s resource limits
+    memory_limiter: null
+  receivers:
+    jaeger:
+      protocols:
+        grpc:
+          endpoint: ${env:MY_POD_IP}:14250
+        thrift_http:
+          endpoint: ${env:MY_POD_IP}:14268
+        thrift_compact:
+          endpoint: ${env:MY_POD_IP}:6831
+    otlp:
+      protocols:
+        grpc:
+          endpoint: ${env:MY_POD_IP}:4317
+        http:
+          endpoint: ${env:MY_POD_IP}:4318
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: opentelemetry-collector
+            scrape_interval: 10s
+            static_configs:
+              - targets:
+                  - ${env:MY_POD_IP}:8888
+    zipkin:
+      endpoint: ${env:MY_POD_IP}:9411
+  service:
+    telemetry:
+      metrics:
+        address: ${env:MY_POD_IP}:8888
+    extensions:
+      - health_check
+      - memory_ballast
+    pipelines:
+      logs:
+        exporters:
+          - debug
+        processors:
+          - memory_limiter
+          - batch
+        receivers:
+          - otlp
+      metrics:
+        exporters:
+          - debug
+        processors:
+          - memory_limiter
+          - batch
+        receivers:
+          - otlp
+          - prometheus
+      traces:
+        exporters:
+          - debug
+        processors:
+          - memory_limiter
+          - batch
+        receivers:
+          - otlp
+          - jaeger
+          - zipkin
+
+
+image: ""
+imagePullSecrets: []          
+
+# OpenTelemetry Collector executable
+command:
+  name: otelcol
+  extraArgs: []
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+  clusterRole:
+  # Specifies whether a clusterRole should be created
+  # Some presets also trigger the creation of a cluster role and cluster role binding.
+  # If using one of those presets, this field is no-op.
+  create: false
+  # Annotations to add to the clusterRole
+  # Can be used in combination with presets that create a cluster role.
+  annotations: {}
+  # The name of the clusterRole to use.
+  # If not set a name is generated using the fullname template
+  # Can be used in combination with presets that create a cluster role.
+  name: ""
+  # A set of rules as documented here : https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+  # Can be used in combination with presets that create a cluster role to add additional rules.
+  rules: []
+  # - apiGroups:
+  #   - ''
+  #   resources:
+  #   - 'pods'
+  #   - 'nodes'
+  #   verbs:
+  #   - 'get'
+  #   - 'list'
+  #   - 'watch'
+
+  clusterRoleBinding:
+    # Annotations to add to the clusterRoleBinding
+    # Can be used in combination with presets that create a cluster role binding.
+    annotations: {}
+    # The name of the clusterRoleBinding to use.
+    # If not set a name is generated using the fullname template
+    # Can be used in combination with presets that create a cluster role binding.
+    name: ""
+
+podSecurityContext: {}
+securityContext: {}
+
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    hostPort: 4317
+    protocol: TCP
+    # nodePort: 30317
+    appProtocol: grpc
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    hostPort: 4318
+    protocol: TCP
+  jaeger-compact:
+    enabled: true
+    containerPort: 6831
+    servicePort: 6831
+    hostPort: 6831
+    protocol: UDP
+  jaeger-thrift:
+    enabled: true
+    containerPort: 14268
+    servicePort: 14268
+    hostPort: 14268
+    protocol: TCP
+  jaeger-grpc:
+    enabled: true
+    containerPort: 14250
+    servicePort: 14250
+    hostPort: 14250
+    protocol: TCP
+  zipkin:
+    enabled: true
+    containerPort: 9411
+    servicePort: 9411
+    hostPort: 9411
+    protocol: TCP
+  metrics:
+    # The metrics port is disabled by default. However you need to enable the port
+    # in order to use the ServiceMonitor (serviceMonitor.enabled) or PodMonitor (podMonitor.enabled).
+    enabled: false
+    containerPort: 8888
+    servicePort: 8888
+    protocol: TCP
+
+# Resource limits & requests. Update according to your own use case as these values might be too low for a typical deployment.
+resources: {}
+# resources:
+#   limits:
+#     cpu: 250m
+#     memory: 512Mi
+
+# Autoscaler specifies the pod autoscaling configuration to use
+# for the OpenTelemetryCollector workload.
+Autoscaler: {}
+# Autoscaler:
+#    enabled: false
+#    MinReplicas: 1
+#    MaxReplicas: 1
+#    Behavior: {}
+#    Metrics:
+#    TargetCPUUtilization:
+#    TargetMemoryUtilization
+
+
+# PodDisruptionBudget specifies the pod disruption budget configuration to use
+# for the OpenTelemetryCollector workload.
+PodDisruptionBudget: {}
+# PodDisruptionBudget:
+#    enabled: false
+#    MinAvailable: 
+#    MinAvailable:
+
+# OpenShiftRoute defines openshift route specific settings.
+OpenShiftRoute:  {}
+# OpenShiftRoute:
+#    enabled: false
+#    Termination: ""
+
+Ingress: {}
+# Ingress:
+#    IngressType:
+#    IngressRuleType:
+#    Hostname: ""
+#    Annotations: []
+#    TLS:
+#    IngressClassName: ""
+#    Route:
+
+podDisruptionBudget
+# podDisruptionBudget:
+#    MinAvailable
+#    MaxUnavailable

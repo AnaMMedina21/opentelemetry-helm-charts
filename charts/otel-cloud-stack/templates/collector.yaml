@@ -1,0 +1,207 @@
+{{- if .Values.collectorCRD.generate -}}
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  name: {{ include "opentelemetry-collector.fullname" . }}
+  labels:
+    {{- include "opentelemetry-collector.labels" . | nindent 4 }}
+  {{- if .Values.collectorCRD.annotations }}
+  annotations:
+    {{- range $key, $value := .Values.collectorCRD.annotations }}
+    {{- printf "%s: %s" $key (tpl $value $ | quote) | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  mode: {{ .Values.mode }}
+  {{- if .Values.collectorCRD.updateStrategy }}
+  updateStrategy: {{ .Values.collectorCRD.updateStrategy | quote }}
+  {{- end }}
+  {{- if .Values.collectorCRD.targetAllocator.enabled }}
+  targetAllocator:
+    enabled: {{ .Values.collectorCRD.targetAllocator.enabled }}
+    {{- if .Values.collectorCRD.targetAllocator.prometheusCR.enabled }}
+    prometheusCR:
+      enabled: true
+      {{- if .Values.collectorCRD.targetAllocator.prometheusCR.podMonitorSelector }}
+      podMonitorSelector:
+        {{- include "opentelemetry-target-allocator.podMonitorSelector" . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.collectorCRD.targetAllocator.prometheusCR.serviceMonitorSelector }}
+      serviceMonitorSelector:
+        {{- include "opentelemetry-target-allocator.serviceMonitorSelector" . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.collectorCRD.allocationStrategy }}
+    allocationStrategy: {{ .Values.collectorCRD.allocationStrategy | quote }}
+    {{- end }}
+    {{- if .Values.collectorCRD.filterStrategy }}
+    filterStrategy: {{ .Values.collectorCRD.filterStrategy | quote }}
+    {{- end }}
+    {{- if .Values.collectorCRD.serviceAccount }}
+    serviceAccount: {{ .Values.collectorCRD.serviceAccount | quote }}
+    {{- else }}
+    serviceAccount: {{ include "opentelemetry-collector.serviceAccountName" . }}-targetallocator
+    {{- end }}
+    {{- if .Values.collectorCRD.targetAllocator.image.tag }}
+    image: "{{ .Values.collectorCRD.targetAllocator.image.repository }}:{{ .Values.collectorCRD.targetAllocator.image.tag | default .Chart.AppVersion }}"
+    {{- else if .Values.collectorCRD.targetAllocator.image.digest}}
+    image: "{{ .Values.collectorCRD.targetAllocator.image.repository }}@{{ .Values.collectorCRD.targetAllocator.image.digest }}"
+    {{- end }}
+    {{- with .Values.collectorCRD.resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.collectorCRD.podAnnotations }}
+  podAnnotations:
+  {{- end }}
+    {{- include "opentelemetry-collector.podAnnotations" . | nindent 8 }}
+  podSecurityContext:
+    {{- if and (not (.Values.collectorCRD.securityContext)) (not (.Values.collectorCRD.isWindows)) (.Values.collectorCRD.presets.logsCollection.storeCheckpoints) }}
+    runAsUser: 0
+    runAsGroup: 0
+    {{- else -}}
+    {{- toYaml .Values.collectorCRD.securityContext | nindent 6 }}
+    {{- end }}
+  {{- if .Values.image.digest }}
+  image: "{{ .Values.collectorCRD.image.repository }}@{{ .Values.collectorCRD.image.digest }}"
+  {{- else }}
+  image: "{{ .Values.collectorCRD.image.repository }}:{{ .Values.collectorCRD.image.tag | default .Chart.AppVersion }}"
+  {{- end }}
+  imagePullPolicy: {{ .Values.collectorCRD.image.pullPolicy }}
+  ports:
+    {{- range $key, $port := .Values.collectorCRD.ports }}
+    {{- if $port.enabled }}
+    - name: {{ $key }}
+      port: {{ $port.containerPort }}
+      protocol: {{ $port.protocol }}
+    {{- end }}
+    {{- end }}
+  env:
+    - name: MY_POD_IP
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: status.podIP
+    {{- if or .Values.collectorCRD.presets.kubeletMetrics.enabled (and .Values.collectorCRD.presets.kubernetesAttributes.enabled (eq .Values.collectorCRD.mode "daemonset")) }}
+    - name: K8S_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+    {{- end }}
+    {{- with .Values.collectorCRD.extraEnvs }}
+    {{- . | toYaml | nindent 4 }}
+    {{- end }}
+  {{- if .Values.collectorCRD.lifecycleHooks }}
+  lifecycle:
+    {{- toYaml .Values.collectorCRD.lifecycleHooks | nindent 6 }}
+  {{- end }}
+  {{- with .Values.collectorCRD.resources }}
+  resources:
+    {{- toYaml . | nindent 6 }}
+  {{- end }}
+  volumeMounts:
+    {{- range .Values.collectorCRD.extraConfigMapMounts }}
+    - name: {{ .name }}
+      mountPath: {{ .mountPath }}
+      readOnly: {{ .readOnly }}
+      {{- if .subPath }}
+      subPath: {{ .subPath }}
+      {{- end }}
+    {{- end }}
+    {{- range .Values.collectorCRD.extraHostPathMounts }}
+    - name: {{ .name }}
+      mountPath: {{ .mountPath }}
+      readOnly: {{ .readOnly }}
+      {{- if .mountPropagation }}
+      mountPropagation: {{ .mountPropagation }}
+      {{- end }}
+    {{- end }}
+    {{- range .Values.collectorCRD.secretMounts }}
+    - name: {{ .name }}
+      mountPath: {{ .mountPath }}
+      readOnly: {{ .readOnly }}
+      {{- if .subPath }}
+      subPath: {{ .subPath }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.collectorCRD.presets.logsCollection.enabled }}
+    - name: varlogpods
+      mountPath: /var/log/pods
+      readOnly: true
+    - name: varlibdockercontainers
+      mountPath: /var/lib/docker/containers
+      readOnly: true
+    {{- if .Values.collectorCRD.presets.logsCollection.storeCheckpoints}}
+    - name: varlibotelcol
+      mountPath: /var/lib/otelcol
+    {{- end }}
+    {{- end }}
+    {{- if .Values.collectorCRD.presets.hostMetrics.enabled }}
+    - name: hostfs
+      mountPath: /hostfs
+      readOnly: true
+      mountPropagation: HostToContainer
+    {{- end }}
+    {{- if .Values.collectorCRD.extraVolumeMounts }}
+    {{- toYaml .Values.extraVolumeMounts | nindent 4 }}
+    {{- end }}
+  volumes:
+  {{- range .Values.collectorCRD.extraConfigMapMounts }}
+    - name: {{ .name }}
+      configMap:
+        name: {{ .configMap }}
+    {{- end }}
+    {{- range .Values.collectorCRD.extraHostPathMounts }}
+    - name: {{ .name }}
+      hostPath:
+        path: {{ .hostPath }}
+    {{- end }}
+    {{- range .Values.collectorCRD.secretMounts }}
+    - name: {{ .name }}
+      secret:
+        secretName: {{ .secretName }}
+    {{- end }}
+    {{- if .Values.collectorCRD.presets.logsCollection.enabled  }}
+    - name: varlogpods
+      hostPath:
+        path: /var/log/pods
+    {{- if .Values.collectorCRD.presets.logsCollection.storeCheckpoints}}
+    - name: varlibotelcol
+      hostPath:
+        path: /var/lib/otelcol
+        type: DirectoryOrCreate
+    {{- end }}
+    - name: varlibdockercontainers
+      hostPath:
+        path: /var/lib/docker/containers
+    {{- end }}
+    {{- if .Values.collectorCRD.presets.hostMetrics.enabled }}
+    - name: hostfs
+      hostPath:
+        path: /
+    {{- end }}
+    {{- if .Values.collectorCRD.extraVolumes }}
+    {{- toYaml .Values.collectorCRD.extraVolumes | nindent 4 }}
+    {{- end }}
+  {{- with .Values.collectorCRD.nodeSelector }}
+  nodeSelector:
+  {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.collectorCRD.affinity }}
+  affinity:
+  {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.collectorCRD.tolerations }}
+  tolerations:
+  {{- toYaml . | nindent 4 }}
+  {{- end }}
+  serviceAccount: {{ include "opentelemetry-collector.serviceAccountName" . }}
+  hostNetwork: {{ .Values.collectorCRD.hostNetwork }}
+  config: |
+  {{- if or (eq .Values.mode "deployment") (eq .Values.mode "statefulset")  -}}
+  {{- include "opentelemetry-collector.deploymentConfig" . | nindent 4 -}}
+  {{- else if eq .Values.mode "daemonset" -}}
+  {{- include "opentelemetry-collector.daemonsetConfig" . | nindent 4 -}}
+  {{- end }}
+{{- end }}
